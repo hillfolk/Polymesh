@@ -36,7 +36,6 @@ use frame_support::{
     dispatch::DispatchResult,
     ensure,
     traits::{Currency, ExistenceRequirement, GetCallMetadata, IsSubType, WithdrawReasons},
-    unsigned::{TransactionValidity, TransactionValidityError},
 };
 use frame_system::{ensure_none, RawOrigin};
 use pallet_staking::{self as staking, RewardDestination};
@@ -46,14 +45,17 @@ use polymesh_common_utilities::{
     with_transaction,
 };
 use polymesh_primitives::Balance;
-use sp_runtime::transaction_validity::InvalidTransaction;
+
 use sp_runtime::{
     traits::{AccountIdConversion, DispatchInfoOf, SignedExtension, StaticLookup, Verify},
-    transaction_validity::ValidTransaction,
+	transaction_validity::{
+		TransactionLongevity, TransactionValidity, ValidTransaction, InvalidTransaction,
+		TransactionSource, TransactionValidityError,
+	},
     DispatchError,
 };
 use sp_std::{convert::TryInto, fmt, marker::PhantomData};
-
+use sp_std::{prelude::*, fmt::Debug};
 type Staking<T> = staking::Module<T>;
 type BalanceOf<T> = <<T as pallet_staking::Config>::Currency as Currency<
     <T as frame_system::Config>::AccountId,
@@ -278,4 +280,41 @@ where
         }
         Ok(ValidTransaction::default())
     }
+}
+
+impl<T: Config> sp_runtime::traits::ValidateUnsigned for Module<T> {
+	type Call = Call<T>;
+
+	fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+		const PRIORITY: u64 = 100;
+        
+		let (maybe_signer, maybe_statement) = match call {
+			// <weight>
+			// The weight of this logic is included in the `claim_itn_reward` dispatchable.
+			// </weight>            
+			Call::claim_itn_reward(reward_address, itn_address, signature) => {
+                let msg = (reward_address, itn_address, "claim_itn_reward").encode();
+                if signature.verify(msg.as_slice(), itn_address) {
+                    (Some(itn_address), Some(msg))    
+                } else {
+                    (None, Some(msg))
+                }
+			}
+			_ => return Err(InvalidTransaction::Call.into()),
+		};
+
+        // TODO: Should check that maybe_signer is good...
+        // let signer = maybe_signer.ok_or(Err(InvalidTransaction::Call.into()));
+		let signer = maybe_signer.unwrap();
+
+        // TODO: Should also check that claimer hasn't already claimed and has a valid claim...
+
+		Ok(ValidTransaction {
+			priority: PRIORITY,
+			requires: vec![],
+			provides: vec![("rewards", signer).encode()],
+			longevity: TransactionLongevity::max_value(),
+			propagate: true,
+		})
+	}
 }
