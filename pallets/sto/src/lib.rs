@@ -28,22 +28,21 @@ pub mod benchmarking;
 
 use codec::{Decode, Encode};
 use core::mem;
+use frame_support::weights::Weight;
 use frame_support::{
     decl_error, decl_event, decl_module, decl_storage, dispatch::DispatchResult, ensure,
 };
 use pallet_identity::PermissionedCallOriginData;
 use pallet_settlement::{
-    self as settlement, Leg, ReceiptDetails, SettlementType, VenueInfo, VenueType,
+    self as settlement, Leg, ReceiptDetails, SettlementType, VenueId, VenueInfo, VenueType,
 };
 use polymesh_common_utilities::{
     portfolio::PortfolioSubTrait,
     traits::{identity, portfolio},
     with_transaction,
 };
-use polymesh_primitives_derive::VecU8StrongTyped;
-
-use frame_support::weights::Weight;
 use polymesh_primitives::{Balance, EventDid, IdentityId, PortfolioId, Ticker};
+use polymesh_primitives_derive::VecU8StrongTyped;
 use sp_std::{collections::btree_set::BTreeSet, prelude::*};
 
 pub const MAX_TIERS: usize = 10;
@@ -92,7 +91,7 @@ pub struct Fundraiser<Moment> {
     /// The sum of the tiers is the total amount available in this fundraiser.
     pub tiers: Vec<FundraiserTier>,
     /// Id of the venue to use for this fundraise.
-    pub venue_id: u64,
+    pub venue_id: VenueId,
     /// Start time of the fundraiser.
     pub start: Moment,
     /// End time of the fundraiser.
@@ -275,7 +274,7 @@ decl_module! {
             raising_portfolio: PortfolioId,
             raising_asset: Ticker,
             tiers: Vec<PriceTier>,
-            venue_id: u64,
+            venue_id: VenueId,
             start: Option<T::Moment>,
             end: Option<T::Moment>,
             minimum_investment: Balance,

@@ -995,9 +995,10 @@
         "SettleOnBlock": "BlockNumber"
       }
     },
+    "InstructionId": "u64",
     "Instruction": {
-      "instruction_id": "u64",
-      "venue_id": "u64",
+      "instruction_id": "InstructionId",
+      "venue_id": "VenueId",
       "status": "InstructionStatus",
       "settlement_type": "SettlementType",
       "created_at": "Option<Moment>",
@@ -1010,6 +1011,7 @@
       "asset": "Ticker",
       "amount": "Balance"
     },
+    "VenueId": "u64",
     "Venue": {
       "creator": "IdentityId",
       "venue_type": "VenueType"

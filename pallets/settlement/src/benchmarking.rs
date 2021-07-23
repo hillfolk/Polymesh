@@ -71,24 +71,26 @@ fn creator<T: Config + TestUtilsFn<AccountIdOf<T>>>() -> User<T> {
 }
 
 /// Set venue related storage without any sanity checks.
-fn create_venue_<T: Config>(did: IdentityId, signers: Vec<T::AccountId>) -> u64 {
+fn create_venue_<T: Config>(did: IdentityId, signers: Vec<T::AccountId>) -> VenueId {
     let venue = Venue {
         creator: did,
         venue_type: VenueType::Distribution,
     };
     // NB: Venue counter starts with 1.
-    let venue_counter = Module::<T>::venue_counter();
+    let venue_counter = VenueCounter::mutate(|c| {
+        c.0 += 1;
+        *c
+    });
     VenueInfo::insert(venue_counter, venue);
     for signer in signers {
         <VenueSigners<T>>::insert(venue_counter, signer, true);
     }
-    VenueCounter::put(venue_counter + 1);
-    Module::<T>::venue_counter() - 1
+    venue_counter
 }
 
 /// Set instruction leg status to `LegStatus::ExecutionToBeSkipped` without any sanity checks.
 fn set_instruction_leg_status_to_skipped<T: Config>(
-    instruction_id: u64,
+    instruction_id: InstructionId,
     leg_id: u64,
     signer: T::AccountId,
     receipt_uid: u64,
@@ -102,12 +104,16 @@ fn set_instruction_leg_status_to_skipped<T: Config>(
 }
 
 /// Set Leg status to `LegStatus::ExecutionPending`
-fn set_instruction_leg_status_to_pending<T: Config>(instruction_id: u64, leg_id: u64) {
+fn set_instruction_leg_status_to_pending<T: Config>(instruction_id: InstructionId, leg_id: u64) {
     <InstructionLegStatus<T>>::insert(instruction_id, leg_id, LegStatus::ExecutionPending);
 }
 
 /// Set user affirmation without any sanity checks.
-fn set_user_affirmations(instruction_id: u64, portfolio: PortfolioId, affirm: AffirmationStatus) {
+fn set_user_affirmations(
+    instruction_id: InstructionId,
+    portfolio: PortfolioId,
+    affirm: AffirmationStatus,
+) {
     UserAffirmations::insert(portfolio, instruction_id, affirm);
 }
 
@@ -183,28 +189,24 @@ fn populate_legs_for_instruction<T: Config + TestUtilsFn<AccountIdOf<T>>>(
 }
 
 fn verify_add_instruction<T: Config>(
-    v_id: u64,
+    v_id: VenueId,
     s_type: SettlementType<T::BlockNumber>,
 ) -> DispatchResult {
-    assert_eq!(
-        Module::<T>::instruction_counter(),
-        2,
-        "Instruction counter not increased"
-    );
+    let id = Module::<T>::instruction_counter();
+    assert_eq!(id.0, 1, "Instruction counter not increased");
     let Instruction {
         instruction_id,
         venue_id,
         settlement_type,
         ..
-    } = Module::<T>::instruction_details(Module::<T>::instruction_counter() - 1);
-    assert_eq!(instruction_id, 1u64);
+    } = Module::<T>::instruction_details(id);
     assert_eq!(venue_id, v_id);
     assert_eq!(settlement_type, s_type);
     Ok(())
 }
 
 fn verify_add_and_affirm_instruction<T: Config>(
-    venue_id: u64,
+    venue_id: VenueId,
     settlement_type: SettlementType<T::BlockNumber>,
     portfolios: Vec<PortfolioId>,
 ) -> DispatchResult {
@@ -212,7 +214,7 @@ fn verify_add_and_affirm_instruction<T: Config>(
     for portfolio_id in portfolios.iter() {
         assert!(
             matches!(
-                Module::<T>::affirms_received(1, portfolio_id),
+                Module::<T>::affirms_received(InstructionId(1), portfolio_id),
                 AffirmationStatus::Affirmed
             ),
             "Affirmation fails"
@@ -227,7 +229,7 @@ fn emulate_add_instruction<T: Config + TestUtilsFn<AccountIdOf<T>>>(
 ) -> Result<
     (
         Vec<Leg>,
-        u64,
+        VenueId,
         RawOrigin<T::AccountId>,
         IdentityId,
         Vec<PortfolioId>,
@@ -540,9 +542,10 @@ benchmarks! {
         }
     }: _(origin, venue_details, signers, venue_type)
     verify {
-        assert_eq!(Module::<T>::venue_counter(), 2, "Invalid venue counter");
-        assert_eq!(Module::<T>::user_venues(did.unwrap()).into_iter().last(), Some(1), "Invalid venue id");
-        assert!(Module::<T>::venue_info(1).is_some(), "Incorrect venue info set");
+        let id = VenueId(1);
+        assert_eq!(Module::<T>::venue_counter(), id, "Invalid venue counter");
+        assert_eq!(Module::<T>::user_venues(did.unwrap()).into_iter().last(), Some(id), "Invalid venue id");
+        assert!(Module::<T>::venue_info(id).is_some(), "Incorrect venue info set");
     }
 
     update_venue_details {
@@ -689,7 +692,7 @@ benchmarks! {
         let (legs, venue_id, origin, did , portfolios, _, _) = emulate_add_instruction::<T>(l, true).unwrap();
         // Add instruction
         Module::<T>::base_add_instruction(did, venue_id, SettlementType::SettleOnAffirmation, None, None, legs.clone()).unwrap();
-        let instruction_id: u64 = 1;
+        let instruction_id: InstructionId = 1;
         // Affirm an instruction
         let portfolios_set = portfolios.clone().into_iter().collect::<BTreeSet<_>>();
         Module::<T>::unsafe_affirm_instruction(did, instruction_id, portfolios_set, l.into(), None).unwrap();
@@ -710,7 +713,7 @@ benchmarks! {
         let (legs, venue_id, origin, did , portfolios, _, account_id) = emulate_add_instruction::<T>(l, true).unwrap();
         // Add instruction
         Module::<T>::base_add_instruction(did, venue_id, SettlementType::SettleOnAffirmation, None, None, legs.clone()).unwrap();
-        let instruction_id: u64 = 1;
+        let instruction_id = InstructionId(1);
         // Affirm an instruction
         portfolios.clone().into_iter().for_each(|p| {
             set_user_affirmations(instruction_id, p, AffirmationStatus::Affirmed);
@@ -750,7 +753,7 @@ benchmarks! {
         let (legs, venue_id, origin, did , portfolios, _, account_id) = emulate_add_instruction::<T>(MAX_LEGS_IN_INSTRUCTION, true).unwrap();
         // Add and affirm instruction.
         Module::<T>::add_and_affirm_instruction((origin.clone()).into(), venue_id, SettlementType::SettleOnAffirmation, None, None, legs, portfolios.clone()).expect("Unable to add and affirm the instruction");
-        let instruction_id: u64 = 1;
+        let instruction_id: InstructionId = 1;
     }: _(origin, instruction_id)
     verify {
         assert_eq!(Module::<T>::instruction_details(instruction_id).status, InstructionStatus::Unknown, "Settlement: Failed to reject instruction");
@@ -802,7 +805,7 @@ benchmarks! {
         let (legs, venue_id, origin, did , s_portfolios, r_portfolios, account_id) = emulate_add_instruction::<T>(r, true).unwrap();
         // Add instruction
         Module::<T>::base_add_instruction(did, venue_id, SettlementType::SettleOnAffirmation, None, None, legs.clone()).unwrap();
-        let instruction_id = 1;
+        let instruction_id = InstructionId(1);
         let mut receipt_details = Vec::with_capacity(r as usize);
         legs.clone().into_iter().enumerate().for_each(|(idx, l)| {
             receipt_details.push(create_receipt_details::<T>(idx as u32, l));
@@ -844,7 +847,7 @@ benchmarks! {
         let first_leg = legs.into_iter().nth(0).unwrap_or_default();
         let before_transfer_balance = PortfolioAssetBalances::get(first_leg.from, first_leg.asset);
         // It always be one as no other instruction is already scheduled.
-        let instruction_id = 1;
+        let instruction_id = InstructionId(1);
         let origin = RawOrigin::Root;
         let from_origin = RawOrigin::Signed(from.account.clone());
         let to_origin = RawOrigin::Signed(to.account.clone());
@@ -880,7 +883,7 @@ benchmarks! {
         let l in 1 .. MAX_LEGS_IN_INSTRUCTION;
 
         let (portfolios_to, from, to, tickers, _) = setup_affirm_instruction::<T>(l);
-        let instruction_id = 1; // It will always be `1` as we know there is no other instruction in the storage yet.
+        let instruction_id = InstructionId(1); // It will always be `1` as we know there is no other instruction in the storage yet.
         let to_portfolios = portfolios_to.clone();
         tickers.iter().for_each(|ticker| Asset::<T>::freeze(RawOrigin::Signed(from.account.clone()).into(), *ticker).unwrap());
         Module::<T>::affirm_instruction(RawOrigin::Signed(to.account.clone()).into(), instruction_id, to_portfolios, l).unwrap();

@@ -3,16 +3,15 @@ use super::{
     storage::{make_account_with_portfolio, TestStorage, User},
     ExtBuilder,
 };
+use crate::storage::provide_scope_claim_to_multiple_parties;
+use frame_support::{assert_noop, assert_ok};
 use pallet_asset as asset;
 use pallet_compliance_manager as compliance_manager;
-use pallet_settlement::{self as settlement, VenueDetails, VenueType};
+use pallet_settlement::{self as settlement, VenueDetails, VenueId, VenueType};
 use pallet_sto::{
     self as sto, Fundraiser, FundraiserName, FundraiserStatus, FundraiserTier, PriceTier, MAX_TIERS,
 };
 use polymesh_primitives::{asset::AssetType, PortfolioId, Ticker};
-
-use crate::storage::provide_scope_claim_to_multiple_parties;
-use frame_support::{assert_noop, assert_ok};
 use sp_runtime::DispatchError;
 use sp_std::convert::TryFrom;
 use test_client::AccountKeyring;
@@ -155,13 +154,13 @@ fn raise_happy_path() {
     allow_all_transfers(raise_ticker, alice);
 
     // Register a venue
-    let venue_counter = Settlement::venue_counter();
     assert_ok!(Settlement::create_venue(
         alice.origin(),
         VenueDetails::default(),
         vec![AccountKeyring::Alice.to_account_id()],
         VenueType::Sto
     ));
+    let venue_counter = Settlement::venue_counter();
 
     let amount = 100u128;
     let alice_init_offering = Asset::balance_of(&offering_ticker, alice.did);
@@ -313,14 +312,13 @@ fn raise_unhappy_path() {
     };
 
     let create_venue = |user: User, type_| {
-        let bad_venue = Settlement::venue_counter();
         assert_ok!(Settlement::create_venue(
             user.origin(),
             VenueDetails::default(),
             vec![alice.acc()],
             type_
         ));
-        bad_venue
+        Settlement::venue_counter()
     };
 
     let default_tiers = vec![PriceTier {
@@ -333,15 +331,23 @@ fn raise_unhappy_path() {
     };
 
     // Name too long.
-    assert_too_long!(fundraise(default_tiers.clone(), 0, max_len_bytes(1)));
+    assert_too_long!(fundraise(
+        default_tiers.clone(),
+        VenueId(0),
+        max_len_bytes(1)
+    ));
 
     // Offering asset not created
-    check_fundraiser(default_tiers.clone(), 0, EAError::UnauthorizedAgent.into());
+    check_fundraiser(
+        default_tiers.clone(),
+        VenueId(0),
+        EAError::UnauthorizedAgent.into(),
+    );
 
     create_asset(alice.origin(), offering_ticker, 1_000_000);
 
     // Venue does not exist
-    check_venue(0);
+    check_venue(VenueId(0));
 
     let bad_venue = create_venue(bob, VenueType::Other);
 
@@ -425,13 +431,13 @@ fn zero_price_sto() {
     allow_all_transfers(ticker, alice);
 
     // Register a venue
-    let venue_counter = Settlement::venue_counter();
     assert_ok!(Settlement::create_venue(
         alice.origin(),
         VenueDetails::default(),
         vec![],
         VenueType::Sto
     ));
+    let venue_counter = Settlement::venue_counter();
 
     let amount = 100u128;
     let alice_init_balance = Asset::balance_of(&ticker, alice.did);
@@ -554,13 +560,13 @@ fn invalid_fundraiser() {
 fn basic_fundraiser() -> (u64, RaiseContext) {
     let context = init_raise_context(1_000_000, Some(1_000_000));
 
-    let venue_counter = Settlement::venue_counter();
     assert_ok!(Settlement::create_venue(
         context.alice.origin(),
         VenueDetails::default(),
         vec![AccountKeyring::Alice.to_account_id()],
         VenueType::Sto
     ));
+    let venue_counter = Settlement::venue_counter();
     let fundraiser_id = STO::fundraiser_count(context.offering_ticker);
     assert_ok!(STO::create_fundraiser(
         context.alice.origin(),
