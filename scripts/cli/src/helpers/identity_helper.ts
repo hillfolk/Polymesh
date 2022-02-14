@@ -91,8 +91,8 @@ export async function authorizeJoinToIdentities(
     let last_auth_id: AnyNumber = 0;
     auths
       .map(([, value]) => value)
-      .filter((value: any) => value.isSome)
-      .forEach((value: any) => {
+      .filter((value) => value.isSome)
+      .forEach((value) => {
         const auth = value.unwrap();
         if (auth.authId > last_auth_id) {
           last_auth_id = auth.authId;

@@ -314,10 +314,9 @@ export function sendTransaction(
               if (dispatchError.isModule) {
                 // known error
                 const mod = dispatchError.asModule;
-                const { section, name, docs } =
-                  mod.registry.findMetaError(
-                    new Uint8Array([mod.index.toNumber(), mod.error.toNumber()])
-                  );
+                const { section, name, docs } = mod.registry.findMetaError(
+                  new Uint8Array([mod.index.toNumber(), mod.error.toNumber()])
+                );
 
                 message = `${section}.${name}: ${docs.join(" ")}`;
               } else if (dispatchError.isBadOrigin) {
